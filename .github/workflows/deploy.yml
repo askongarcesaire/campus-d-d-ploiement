@@ -1,0 +1,36 @@
+name: Deploy & Sync to Vercel
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    name: Build & Test CampusHub Africa
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install --legacy-peer-deps
+
+      - name: Run Build
+        run: npm run build
+
+      - name: Verify Version Generation
+        run: test -f dist/version.json && cat dist/version.json

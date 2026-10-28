@@ -18,7 +18,9 @@ import { AdminView } from './components/AdminView';
 import { AuthGatePage } from './components/AuthGatePage';
 import { CustomizationProvider } from './context/CustomizationContext';
 import { SettingsView } from './components/SettingsView';
+import { AutoUpdateNotification } from './components/AutoUpdateNotification';
 import { X } from 'lucide-react';
+
 
 function AppContent() {
   const { user, activeTab, setActiveTab, viewProfileUserId } = useAuth();
@@ -127,10 +129,12 @@ function AppContent() {
       {/* Mobile Bottom Navigation Bar */}
       <MobileNav />
 
-      {/* Modals */}
+      {/* Modals & Notifications */}
       <AuthModal />
       <ReportModal />
+      <AutoUpdateNotification />
     </div>
+
   );
 }
 

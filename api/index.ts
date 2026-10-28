@@ -22,15 +22,24 @@ app.use(async (_req, _res, next) => {
   }
 });
 
-app.get('/api/health', (_req, res) => {
+// Version & health check endpoint for Vercel auto-update check
+const healthCheck = (_req: express.Request, res: express.Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.json({
     status: 'healthy',
     app: 'CampusHub Africa',
-    version: '1.0.0',
+    version: '1.0.1',
+    environment: process.env.VERCEL ? 'vercel' : 'production',
     timestamp: new Date().toISOString()
   });
-});
+};
 
+app.get('/api/health', healthCheck);
+app.get('/health', healthCheck);
+
+// Mount router on both /api and root so Vercel rewrites work consistently
 app.use('/api', apiRouter);
+app.use('/', apiRouter);
 
 export default app;
+

@@ -8,7 +8,13 @@ let pgliteInstance: PGlite | null = null;
 export async function getDb(): Promise<PGlite> {
   if (pgliteInstance) return pgliteInstance;
 
-  const dataDir = path.resolve(process.cwd(), '.data/campushub_pg');
+  // In Vercel serverless functions, only /tmp is writable.
+  // process.cwd() is read-only (/var/task) and fails on mkdirSync.
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const dataDir = isServerless
+    ? path.resolve('/tmp', 'campushub_pg')
+    : path.resolve(process.cwd(), '.data/campushub_pg');
+
   try {
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
@@ -16,19 +22,20 @@ export async function getDb(): Promise<PGlite> {
     pgliteInstance = new PGlite(dataDir);
     await pgliteInstance.exec('SELECT 1');
   } catch (err) {
-    console.warn('⚠️ Erreur d\'initialisation du stockage PG local, réinitialisation du répertoire:', err);
+    console.warn('⚠️ Erreur d\'initialisation du stockage PG persistant, tentative en mode mémoire:', err);
     try {
-      if (fs.existsSync(dataDir)) {
-        fs.rmSync(dataDir, { recursive: true, force: true });
-        fs.mkdirSync(dataDir, { recursive: true });
+      const fallbackDir = path.resolve('/tmp', 'campushub_pg');
+      if (!fs.existsSync(fallbackDir)) {
+        fs.mkdirSync(fallbackDir, { recursive: true });
       }
-      pgliteInstance = new PGlite(dataDir);
+      pgliteInstance = new PGlite(fallbackDir);
       await pgliteInstance.exec('SELECT 1');
     } catch (e2) {
       console.warn('⚠️ Mode secours en mémoire activé pour PostgreSQL:', e2);
       pgliteInstance = new PGlite();
     }
   }
+
 
   await initSchemaAndSeed(pgliteInstance);
   return pgliteInstance;

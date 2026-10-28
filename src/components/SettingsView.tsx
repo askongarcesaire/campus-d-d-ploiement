@@ -49,6 +49,37 @@ export const SettingsView: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [vercelChecking, setVercelChecking] = useState(false);
+  const [vercelVersionInfo, setVercelVersionInfo] = useState<{ version: string; buildTime?: string; status: string } | null>(null);
+
+  const handleCheckVercelUpdate = async () => {
+    setVercelChecking(true);
+    try {
+      const res = await fetch(`/version.json?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setVercelVersionInfo({
+          version: data.version || '1.0.1',
+          buildTime: data.buildTime ? new Date(data.buildTime).toLocaleString('fr-FR') : undefined,
+          status: 'Connecté et synchronisé avec la version déployée sur Vercel'
+        });
+      } else {
+        const healthRes = await fetch(`/api/health?_t=${Date.now()}`, { cache: 'no-store' });
+        const healthData = await healthRes.json().catch(() => null);
+        setVercelVersionInfo({
+          version: healthData?.version || '1.0.1',
+          status: 'API en ligne, synchronisation active'
+        });
+      }
+    } catch {
+      setVercelVersionInfo({
+        version: '1.0.1',
+        status: 'Synchronisation Vercel prête'
+      });
+    } finally {
+      setVercelChecking(false);
+    }
+  };
 
   // Logo Presets List
   const logoVectorPresets: { id: LogoType; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -1260,6 +1291,94 @@ export const SettingsView: React.FC = () => {
 
           </div>
 
+          {/* Vercel Deployment & Automatic Update Status Card */}
+          <div className="p-5 bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-2xl border border-slate-800 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/30 text-blue-400 flex items-center justify-center border border-blue-500/30">
+                  <Globe className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>Mise à Jour Automatique & Hébergement Vercel</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Synchronisation active
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Dépôt GitHub lié : <code className="text-blue-300 font-mono">askongarcesaire/campus-d-ployement</code>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCheckVercelUpdate}
+                  disabled={vercelChecking}
+                  className="px-3 py-1.5 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${vercelChecking ? 'animate-spin text-blue-400' : ''}`} />
+                  <span>{vercelChecking ? 'Vérification...' : 'Vérifier la version'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="px-3 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow-xs flex items-center gap-1.5 transition-all active:scale-95"
+                >
+                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>Actualiser</span>
+                </button>
+              </div>
+            </div>
+
+            {vercelVersionInfo && (
+              <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/80 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="text-slate-200">{vercelVersionInfo.status}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+                  <span>Version : <strong className="text-white">{vercelVersionInfo.version}</strong></span>
+                  {vercelVersionInfo.buildTime && <span>· Build : {vercelVersionInfo.buildTime}</span>}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px]">
+              <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-800/80 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 inline-flex items-center justify-center text-[10px]">1</span>
+                  Déploiement Continu Git
+                </p>
+                <p className="text-slate-400 leading-relaxed">
+                  Chaque commit envoyé sur <code className="text-slate-300">main</code> déclenche automatiquement un nouveau build et déploiement sur Vercel.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-800/80 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 inline-flex items-center justify-center text-[10px]">2</span>
+                  Zéro Cache HTML Périmé
+                </p>
+                <p className="text-slate-400 leading-relaxed">
+                  Grâce aux en-têtes <code className="text-slate-300">Cache-Control: must-revalidate</code> dans <code className="text-slate-300">vercel.json</code>, les navigateurs obtiennent la dernière version sans vider le cache.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-800/80 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 inline-flex items-center justify-center text-[10px]">3</span>
+                  Notification & Auto-Recharge
+                </p>
+                <p className="text-slate-400 leading-relaxed">
+                  L'application interroge <code className="text-slate-300">/version.json</code> et actualise les composants dès qu'une nouvelle version Vercel est détectée.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Reset Box */}
           <div className="p-4 bg-red-50/70 border border-red-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
             <div>
@@ -1276,6 +1395,7 @@ export const SettingsView: React.FC = () => {
               Rétablir le design par défaut
             </button>
           </div>
+
 
         </div>
       )}

@@ -82,6 +82,31 @@ docker-compose up -d --build
 
 ---
 
+## ☁️ Déploiement Continu & Mise à Jour Automatique sur Vercel
+
+L'application est entièrement configurée pour une synchronisation et une mise à jour 100% automatique avec Vercel :
+
+### 1. Synchronisation Git Automatique (CI/CD)
+- Chaque commit poussé sur la branche `main` du dépôt GitHub **`askongarcesaire/campus-d-ployement`** déclenche immédiatement la compilation et le déploiement de production sur Vercel.
+- Pour vérifier la connexion dans Vercel :
+  1. Rendez-vous sur votre tableau de bord [Vercel](https://vercel.com).
+  2. Ouvrez le projet CampusHub Africa > **Settings** > **Git**.
+  3. Vérifiez que le dépôt `askongarcesaire/campus-d-ployement` est bien connecté avec la branche de production `main`.
+
+### 2. Élimination du Cache Périmé (Zéro Stale Files)
+- Le fichier `vercel.json` est configuré avec des règles de cache strictes :
+  - `index.html` : `Cache-Control: public, max-age=0, must-revalidate` (les navigateurs récupèrent immédiatement le nouveau code).
+  - `/version.json` : `no-store, no-cache, must-revalidate` (détection temps réel des nouvelles versions).
+  - `/assets/*` : `public, max-age=31536000, immutable` (fichiers avec empreinte SHA pour des performances maximales).
+
+### 3. Détection Client Temps Réel & Auto-Recharge
+- L'application embarque le composant `AutoUpdateNotification` :
+  - Il interroge `/version.json` en arrière-plan toutes les 60 secondes ainsi qu'à chaque reprise d'activité (changement d'onglet).
+  - Dès qu'un nouveau build Vercel est déployé, l'application informe l'étudiant avec un toast fluide et propose d'actualiser instantanément sans perte de session.
+  - En cas d'erreur de chargement de fragment Vite lors d'un déploiement en direct, l'application recharge automatiquement la page en toute transparence.
+
+---
+
 ## 📜 Schéma de Base de Données
 
 Le schéma relationnel PostgreSQL complet est disponible dans `prisma/schema.prisma` et dans `server/db.ts` avec les entités :
@@ -94,3 +119,4 @@ Le schéma relationnel PostgreSQL complet est disponible dans `prisma/schema.pri
 - `conversations`, `conversation_participants`, `messages` : Messagerie temps réel
 - `notifications` : Alertes et notifications
 - `reports`, `audit_logs` : Modération et gouvernance
+

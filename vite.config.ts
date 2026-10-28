@@ -1,11 +1,37 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig, Plugin } from 'vite';
+
+const versionPlugin = (): Plugin => {
+  const buildTime = new Date().toISOString();
+  return {
+    name: 'generate-version-json',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify(
+          {
+            version: '1.0.1',
+            buildTime,
+            app: 'CampusHub Africa'
+          },
+          null,
+          2
+        )
+      });
+    }
+  };
+};
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), versionPlugin()],
+    define: {
+      __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+      __APP_VERSION__: JSON.stringify('1.0.1')
+    },
     resolve: {
       alias: {
         '@': path.resolve('.'),
@@ -23,3 +49,4 @@ export default defineConfig(() => {
     },
   };
 });
+
