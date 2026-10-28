@@ -8,6 +8,7 @@ import {
   LogoType, LogoShape, LogoSize, AnnouncementType
 } from '../types';
 import { api } from '../services/api';
+import { subscribeToRealtimeEvent } from '../services/socket';
 
 const BRANDING_STORAGE_KEY = 'campushub_branding_custom';
 const PREFERENCES_STORAGE_KEY = 'campushub_user_preferences';
@@ -99,7 +100,22 @@ export const CustomizationProvider: React.FC<{ children: React.ReactNode }> = ({
       })
       .catch(() => {})
       .finally(() => setIsLoadingBranding(false));
+
+    // Real-time synchronization across all other connected devices
+    const unsubscribe = subscribeToRealtimeEvent<{ settings: SiteSettings }>('settings:updated', (data) => {
+      if (data?.settings) {
+        setBranding(prev => ({ ...prev, ...data.settings }));
+        try {
+          localStorage.setItem(BRANDING_STORAGE_KEY, JSON.stringify(data.settings));
+        } catch {}
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
+
 
   // Sync document title when platform_name changes
   useEffect(() => {

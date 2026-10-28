@@ -7,7 +7,9 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useCustomization, PlatformLogo } from '../context/CustomizationContext';
 import { api } from '../services/api';
+import { subscribePresence, subscribeToRealtimeEvent } from '../services/socket';
 import { NotificationItem } from '../types';
+
 
 interface HeaderProps {
   onOpenMobileMenu: () => void;
@@ -21,10 +23,29 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenCreatePo
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [onlineDevicesCount, setOnlineDevicesCount] = useState(1);
   const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const unreadNotifsCount = notifications.filter(n => !n.is_read).length;
+
+  // Real-time presence tracking across all devices
+  useEffect(() => {
+    const unsubPresence = subscribePresence((count) => {
+      setOnlineDevicesCount(count);
+    });
+
+    const unsubNotif = subscribeToRealtimeEvent<NotificationItem>('notification:new', (notif) => {
+      if (notif && notif.id) {
+        setNotifications(prev => [notif, ...prev.filter(n => n.id !== notif.id)]);
+      }
+    });
+
+    return () => {
+      unsubPresence();
+      unsubNotif();
+    };
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -33,6 +54,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenCreatePo
       return () => clearInterval(interval);
     }
   }, [user]);
+
 
   // Click outside listener
   useEffect(() => {
@@ -160,6 +182,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, onOpenCreatePo
 
         {/* Right Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Live multi-device presence indicator */}
+          <div
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold shrink-0"
+            title="Synchronisation en temps réel active pour tous les appareils connectés"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>{onlineDevicesCount > 1 ? `${onlineDevicesCount} en direct` : 'En direct'}</span>
+          </div>
+
           {user ? (
             <>
               {/* Quick Create Button */}

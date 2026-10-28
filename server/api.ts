@@ -2,12 +2,14 @@ import express, { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query, queryOne } from './db.ts';
+import { broadcastRealtime, sendToUserRealtime } from './socket.ts';
 import {
   AFRICAN_ACADEMIC_DIRECTORY,
   getAllAfricanCountries,
   getCitiesByCountry,
   getUniversitiesByCountry
 } from '../src/data/africanDirectory.ts';
+
 
 export const apiRouter = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'campushub-africa-secret-key-2026-secure';
@@ -664,14 +666,19 @@ apiRouter.post('/posts', authenticateToken, async (req: AuthenticatedRequest, re
       WHERE p.id = $1
     `, [postId]);
 
+    const formattedPost = {
+      ...post,
+      attachments: JSON.parse(post.attachments || '[]'),
+      isLiked: false,
+      isSaved: false
+    };
+
+    // Real-time broadcast to all connected devices
+    broadcastRealtime('post:created', { post: formattedPost });
+
     res.status(201).json({
       message: 'Publication publiée avec succès !',
-      post: {
-        ...post,
-        attachments: JSON.parse(post.attachments || '[]'),
-        isLiked: false,
-        isSaved: false
-      }
+      post: formattedPost
     });
   } catch (err: any) {
     console.error('Create post error:', err);
@@ -695,6 +702,10 @@ apiRouter.delete('/posts/:id', authenticateToken, async (req: AuthenticatedReque
     }
 
     await query('DELETE FROM posts WHERE id = $1', [postId]);
+
+    // Real-time broadcast deletion to all connected devices
+    broadcastRealtime('post:deleted', { postId });
+
     res.json({ message: 'Publication supprimée avec succès.' });
   } catch (err: any) {
     console.error('Delete post error:', err);
@@ -725,19 +736,34 @@ apiRouter.post('/posts/:id/like', authenticateToken, async (req: AuthenticatedRe
       const post = await queryOne('SELECT author_id FROM posts WHERE id = $1', [postId]);
       if (post && post.author_id !== userId) {
         const actor = await queryOne('SELECT first_name, last_name FROM student_profiles WHERE user_id = $1', [userId]);
+        const notifId = `notif_${Date.now()}`;
         await query(`
           INSERT INTO notifications (id, user_id, actor_id, type, title, message, link)
           VALUES ($1, $2, $3, 'LIKE', 'Nouvelle mention J''aime', $4, $5)
         `, [
-          `notif_${Date.now()}`, post.author_id, userId,
+          notifId, post.author_id, userId,
           `${actor?.first_name} ${actor?.last_name} a aimé votre publication.`,
           `/posts/${postId}`
         ]);
+        sendToUserRealtime(post.author_id, 'notification:new', {
+          id: notifId,
+          type: 'LIKE',
+          title: "Nouvelle mention J'aime",
+          message: `${actor?.first_name} ${actor?.last_name} a aimé votre publication.`,
+          link: `/posts/${postId}`,
+          created_at: new Date().toISOString(),
+          is_read: false
+        });
       }
     }
 
     const post = await queryOne('SELECT likes_count FROM posts WHERE id = $1', [postId]);
-    res.json({ liked, likesCount: post?.likes_count || 0 });
+    const likesCount = post?.likes_count || 0;
+
+    // Real-time broadcast like update to all connected devices
+    broadcastRealtime('post:liked', { postId, likesCount, actorId: userId, liked });
+
+    res.json({ liked, likesCount });
   } catch (err: any) {
     console.error('Like error:', err);
     res.status(500).json({ error: 'Erreur lors de la mise à jour.' });
@@ -818,18 +844,31 @@ apiRouter.post('/posts/:id/comments', authenticateToken, async (req: Authenticat
       WHERE c.id = $1
     `, [commentId]);
 
+    // Real-time broadcast comment to all connected devices
+    broadcastRealtime('comment:created', { postId, comment });
+
     // Notify post author
     const post = await queryOne('SELECT author_id FROM posts WHERE id = $1', [postId]);
     if (post && post.author_id !== userId) {
       const actor = await queryOne('SELECT first_name, last_name FROM student_profiles WHERE user_id = $1', [userId]);
+      const notifId = `notif_${Date.now()}`;
       await query(`
         INSERT INTO notifications (id, user_id, actor_id, type, title, message, link)
         VALUES ($1, $2, $3, 'COMMENT', 'Nouveau commentaire', $4, $5)
       `, [
-        `notif_${Date.now()}`, post.author_id, userId,
+        notifId, post.author_id, userId,
         `${actor?.first_name} ${actor?.last_name} a commenté votre publication.`,
         `/posts/${postId}`
       ]);
+      sendToUserRealtime(post.author_id, 'notification:new', {
+        id: notifId,
+        type: 'COMMENT',
+        title: 'Nouveau commentaire',
+        message: `${actor?.first_name} ${actor?.last_name} a commenté votre publication.`,
+        link: `/posts/${postId}`,
+        created_at: new Date().toISOString(),
+        is_read: false
+      });
     }
 
     res.status(201).json({ message: 'Commentaire ajouté !', comment });
@@ -838,6 +877,7 @@ apiRouter.post('/posts/:id/comments', authenticateToken, async (req: Authenticat
     res.status(500).json({ error: "Erreur lors de l'ajout du commentaire." });
   }
 });
+
 
 /* ==========================================================================
    5. SCHOLARSHIPS, INTERNSHIPS & OPPORTUNITIES (BOURSES & STAGES)
@@ -991,6 +1031,17 @@ apiRouter.post('/opportunities', authenticateToken, async (req: AuthenticatedReq
       isAutoVerified, isAutoVerified ? userId : null
     ]);
 
+    const createdOpp = await queryOne(`
+      SELECT o.*, sp.first_name as author_first_name, sp.last_name as author_last_name,
+             sp.avatar_url as author_avatar, sp.institution as author_institution
+      FROM opportunities o
+      LEFT JOIN student_profiles sp ON sp.user_id = o.author_id
+      WHERE o.id = $1
+    `, [oppId]);
+
+    // Real-time broadcast to all connected devices
+    broadcastRealtime('opportunity:created', { opportunity: createdOpp });
+
     res.status(201).json({
       message: isAutoVerified ? 'Opportunité publiée et vérifiée avec succès !' : 'Opportunité soumise ! Elle sera examinée par l\'équipe de modération.',
       opportunityId: oppId
@@ -1021,12 +1072,19 @@ apiRouter.post('/opportunities/:id/favorite', authenticateToken, async (req: Aut
       favorited = true;
     }
 
+    const oppRow = await queryOne('SELECT favorites_count FROM opportunities WHERE id = $1', [oppId]);
+    const favoritesCount = oppRow?.favorites_count || 0;
+
+    // Real-time broadcast to all connected devices
+    broadcastRealtime('opportunity:favorited', { opportunityId: oppId, favoritesCount, userId, favorited });
+
     res.json({ favorited, message: favorited ? 'Opportunité ajoutée à vos favoris.' : 'Opportunité retirée de vos favoris.' });
   } catch (err: any) {
     console.error('Favorite error:', err);
     res.status(500).json({ error: 'Erreur serveur.' });
   }
 });
+
 
 /* ==========================================================================
    6. PEDAGOGICAL RESOURCES (BIBLIOTHÈQUE ACADÉMIQUE)
@@ -1125,7 +1183,18 @@ apiRouter.post('/resources', authenticateToken, async (req: AuthenticatedRequest
       fileType || 'application/pdf'
     ]);
 
-    res.status(201).json({ message: 'Ressource pédagogique partagée avec succès !', resourceId: resId });
+    const createdResource = await queryOne(`
+      SELECT r.*, sp.first_name as uploader_first_name, sp.last_name as uploader_last_name,
+             sp.avatar_url as uploader_avatar
+      FROM resources r
+      JOIN student_profiles sp ON sp.user_id = r.uploader_id
+      WHERE r.id = $1
+    `, [resId]);
+
+    // Real-time broadcast to all connected devices
+    broadcastRealtime('resource:created', { resource: createdResource });
+
+    res.status(201).json({ message: 'Ressource pédagogique partagée avec succès !', resourceId: resId, resource: createdResource });
   } catch (err: any) {
     console.error('Create resource error:', err);
     res.status(500).json({ error: 'Erreur lors de l\'enregistrement de la ressource.' });
@@ -1136,15 +1205,20 @@ apiRouter.post('/resources/:id/download', async (req, res) => {
   try {
     const resId = req.params.id;
     await query('UPDATE resources SET download_count = download_count + 1 WHERE id = $1', [resId]);
-    const resource = await queryOne('SELECT file_url, file_name FROM resources WHERE id = $1', [resId]);
+    const resource = await queryOne('SELECT file_url, file_name, download_count FROM resources WHERE id = $1', [resId]);
     if (!resource) {
       return res.status(404).json({ error: 'Document introuvable.' });
     }
+
+    // Real-time broadcast to all connected devices
+    broadcastRealtime('resource:downloaded', { resourceId: resId, downloadCount: resource.download_count });
+
     res.json({ message: 'Téléchargement démarré', fileUrl: resource.file_url, fileName: resource.file_name });
   } catch (err: any) {
     console.error('Download error:', err);
     res.status(500).json({ error: 'Erreur de téléchargement.' });
   }
+
 });
 
 /* ==========================================================================
@@ -1215,7 +1289,12 @@ apiRouter.post('/groups', authenticateToken, async (req: AuthenticatedRequest, r
       VALUES ($1, $2, $3, 'ADMIN', 'ACTIVE')
     `, [`gm_${groupId}_${userId}`, groupId, userId]);
 
-    res.status(201).json({ message: 'Groupe académique créé avec succès !', groupId });
+    const createdGroup = await queryOne('SELECT * FROM groups WHERE id = $1', [groupId]);
+
+    // Real-time broadcast to all connected devices
+    broadcastRealtime('group:created', { group: createdGroup });
+
+    res.status(201).json({ message: 'Groupe académique créé avec succès !', groupId, group: createdGroup });
   } catch (err: any) {
     console.error('Create group error:', err);
     res.status(500).json({ error: 'Erreur lors de la création du groupe.' });
@@ -1231,6 +1310,8 @@ apiRouter.post('/groups/:id/join', authenticateToken, async (req: AuthenticatedR
     if (existing) {
       await query('DELETE FROM group_memberships WHERE id = $1', [existing.id]);
       await query('UPDATE groups SET members_count = GREATEST(1, members_count - 1) WHERE id = $1', [groupId]);
+      const g = await queryOne('SELECT members_count FROM groups WHERE id = $1', [groupId]);
+      broadcastRealtime('group:updated', { groupId, membersCount: g?.members_count || 1, userId, joined: false });
       return res.json({ joined: false, message: 'Vous avez quitté le groupe.' });
     }
 
@@ -1240,12 +1321,16 @@ apiRouter.post('/groups/:id/join', authenticateToken, async (req: AuthenticatedR
     `, [`gm_${groupId}_${userId}`, groupId, userId]);
 
     await query('UPDATE groups SET members_count = members_count + 1 WHERE id = $1', [groupId]);
+    const g = await queryOne('SELECT members_count FROM groups WHERE id = $1', [groupId]);
+    broadcastRealtime('group:updated', { groupId, membersCount: g?.members_count || 1, userId, joined: true });
+
     res.json({ joined: true, message: 'Vous avez rejoint le groupe avec succès !' });
   } catch (err: any) {
     console.error('Join group error:', err);
     res.status(500).json({ error: 'Erreur lors de l\'adhésion.' });
   }
 });
+
 
 /* ==========================================================================
    8. REAL-TIME MESSAGING (MESSAGERIE INSTANTANÉE)
@@ -1780,9 +1865,14 @@ apiRouter.put('/settings', async (req, res) => {
     ]);
 
     const updated = await queryOne('SELECT * FROM site_settings WHERE id = $1', ['default']);
+
+    // Real-time broadcast branding and settings update to all connected devices
+    broadcastRealtime('settings:updated', { settings: updated });
+
     res.json({ message: 'Paramètres du site et logo enregistrés avec succès.', settings: updated });
   } catch (err: any) {
     console.error('Update settings error:', err);
     res.status(500).json({ error: 'Erreur lors de la mise à jour des paramètres.' });
   }
 });
+

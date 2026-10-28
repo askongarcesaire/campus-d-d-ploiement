@@ -4,7 +4,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { subscribeToRealtimeEvent } from '../services/socket';
 import { AcademicGroup } from '../types';
+
 
 export const GroupsView: React.FC = () => {
   const { user, openAuthModal, setActiveTab } = useAuth();
@@ -22,7 +24,42 @@ export const GroupsView: React.FC = () => {
 
   useEffect(() => {
     loadGroups();
-  }, []);
+
+    // Real-time synchronization across all devices
+    const unsubCreated = subscribeToRealtimeEvent<{ group: AcademicGroup }>('group:created', ({ group }) => {
+      if (!group || !group.id) return;
+      setGroups((prev) => {
+        if (prev.some((g) => g.id === group.id)) return prev;
+        return [group, ...prev];
+      });
+    });
+
+    const unsubUpdated = subscribeToRealtimeEvent<{
+      groupId: string;
+      membersCount: number;
+      userId: string;
+      joined: boolean;
+    }>('group:updated', ({ groupId, membersCount, userId, joined }) => {
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (g.id === groupId) {
+            return {
+              ...g,
+              members_count: membersCount,
+              isMember: userId === user?.id ? joined : g.isMember
+            };
+          }
+          return g;
+        })
+      );
+    });
+
+    return () => {
+      unsubCreated();
+      unsubUpdated();
+    };
+  }, [user?.id]);
+
 
   const loadGroups = async () => {
     setIsLoading(true);

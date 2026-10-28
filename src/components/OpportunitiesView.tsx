@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { subscribeToRealtimeEvent } from '../services/socket';
 import { Opportunity, ReferenceData } from '../types';
+
 import { CountryFlag } from './CountryFlag';
 import { getCountryMeta } from '../data/africanDirectory';
 
@@ -51,6 +53,49 @@ export const OpportunitiesView: React.FC = () => {
   useEffect(() => {
     loadOpportunities();
   }, [selectedCategory, selectedCountry, selectedLevel, favoritesOnly]);
+
+  // Real-time synchronization across all devices
+  useEffect(() => {
+    const unsubCreated = subscribeToRealtimeEvent<{ opportunity: Opportunity }>(
+      'opportunity:created',
+      ({ opportunity }) => {
+        if (!opportunity || !opportunity.id) return;
+        setOpportunities((prev) => {
+          if (prev.some((o) => o.id === opportunity.id)) return prev;
+          if (favoritesOnly) return prev;
+          if (selectedCategory !== 'ALL' && opportunity.category !== selectedCategory) return prev;
+          if (selectedCountry !== 'ALL' && opportunity.country !== selectedCountry) return prev;
+          return [opportunity, ...prev];
+        });
+      }
+    );
+
+    const unsubFavorited = subscribeToRealtimeEvent<{
+      opportunityId: string;
+      favoritesCount: number;
+      userId: string;
+      favorited: boolean;
+    }>('opportunity:favorited', ({ opportunityId, favoritesCount, userId, favorited }) => {
+      setOpportunities((prev) =>
+        prev.map((o) => {
+          if (o.id === opportunityId) {
+            return {
+              ...o,
+              favorites_count: favoritesCount,
+              isFavorited: userId === user?.id ? favorited : o.isFavorited
+            };
+          }
+          return o;
+        })
+      );
+    });
+
+    return () => {
+      unsubCreated();
+      unsubFavorited();
+    };
+  }, [selectedCategory, selectedCountry, selectedLevel, favoritesOnly, user?.id]);
+
 
   const loadOpportunities = async () => {
     setIsLoading(true);

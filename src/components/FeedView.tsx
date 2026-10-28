@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { subscribeToRealtimeEvent } from '../services/socket';
 import { Post, PostComment } from '../types';
+
 
 interface FeedViewProps {
   savedOnly?: boolean;
@@ -45,6 +47,73 @@ export const FeedView: React.FC<FeedViewProps> = ({ savedOnly = false }) => {
   useEffect(() => {
     loadPosts();
   }, [categoryFilter, savedOnly]);
+
+  // Real-time synchronization across all devices
+  useEffect(() => {
+    const unsubCreated = subscribeToRealtimeEvent<{ post: Post }>('post:created', ({ post }) => {
+      if (!post || !post.id) return;
+      // Idempotency: don't add duplicate
+      setPosts((prev) => {
+        if (prev.some((p) => p.id === post.id)) return prev;
+        if (savedOnly) return prev;
+        if (categoryFilter !== 'ALL' && post.category !== categoryFilter) return prev;
+        return [post, ...prev];
+      });
+    });
+
+    const unsubDeleted = subscribeToRealtimeEvent<{ postId: string }>('post:deleted', ({ postId }) => {
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    });
+
+    const unsubLiked = subscribeToRealtimeEvent<{ postId: string; likesCount: number; actorId: string; liked: boolean }>(
+      'post:liked',
+      ({ postId, likesCount, actorId, liked }) => {
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id === postId) {
+              return {
+                ...p,
+                likes_count: likesCount,
+                isLiked: actorId === user?.id ? liked : p.isLiked
+              };
+            }
+            return p;
+          })
+        );
+      }
+    );
+
+    const unsubComment = subscribeToRealtimeEvent<{ postId: string; comment: PostComment }>(
+      'comment:created',
+      ({ postId, comment }) => {
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id === postId) {
+              return { ...p, comments_count: (p.comments_count || 0) + 1 };
+            }
+            return p;
+          })
+        );
+
+        setPostComments((prev) => {
+          const existing = prev[postId] || [];
+          if (existing.some((c) => c.id === comment.id)) return prev;
+          return {
+            ...prev,
+            [postId]: [...existing, comment]
+          };
+        });
+      }
+    );
+
+    return () => {
+      unsubCreated();
+      unsubDeleted();
+      unsubLiked();
+      unsubComment();
+    };
+  }, [categoryFilter, savedOnly, user?.id]);
+
 
   const loadPosts = async () => {
     setIsLoading(true);

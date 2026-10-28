@@ -5,7 +5,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { subscribeToRealtimeEvent } from '../services/socket';
 import { AcademicResource, ReferenceData } from '../types';
+
 
 export const ResourcesView: React.FC = () => {
   const { user, openAuthModal, openReportModal } = useAuth();
@@ -42,6 +44,42 @@ export const ResourcesView: React.FC = () => {
   useEffect(() => {
     loadResources();
   }, [selectedCategory, selectedInstitution, selectedField, selectedLevel]);
+
+  // Real-time synchronization across all devices
+  useEffect(() => {
+    const unsubCreated = subscribeToRealtimeEvent<{ resource: AcademicResource }>(
+      'resource:created',
+      ({ resource }) => {
+        if (!resource || !resource.id) return;
+        setResources((prev) => {
+          if (prev.some((r) => r.id === resource.id)) return prev;
+          if (selectedCategory !== 'ALL' && resource.category !== selectedCategory) return prev;
+          if (selectedInstitution !== 'ALL' && resource.institution !== selectedInstitution) return prev;
+          return [resource, ...prev];
+        });
+      }
+    );
+
+    const unsubDownloaded = subscribeToRealtimeEvent<{ resourceId: string; downloadCount: number }>(
+      'resource:downloaded',
+      ({ resourceId, downloadCount }) => {
+        setResources((prev) =>
+          prev.map((r) => {
+            if (r.id === resourceId) {
+              return { ...r, download_count: downloadCount };
+            }
+            return r;
+          })
+        );
+      }
+    );
+
+    return () => {
+      unsubCreated();
+      unsubDownloaded();
+    };
+  }, [selectedCategory, selectedInstitution, selectedField, selectedLevel]);
+
 
   const loadResources = async () => {
     setIsLoading(true);

@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, StudentProfile } from '../types';
 import { api, tokenStorage } from '../services/api';
-import { getSocket, disconnectSocket } from '../services/socket';
+import { getSocket, disconnectSocket, reauthenticateSocket } from '../services/socket';
+
 
 interface AuthContextType {
   user: User | null;
@@ -49,11 +50,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       const data = await api.auth.me();
       setUser(data.user);
-      getSocket(); // Ensure real-time socket connects
+      reauthenticateSocket();
     } catch (_err) {
       tokenStorage.remove();
       setUser(null);
-      disconnectSocket();
+      reauthenticateSocket();
     } finally {
       setIsLoading(false);
     }
@@ -67,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const res = await api.auth.login({ email, password });
     tokenStorage.set(res.token);
     setUser(res.user);
-    getSocket();
+    reauthenticateSocket(res.token);
     setAuthModalState({ isOpen: false, mode: 'login' });
   };
 
@@ -75,16 +76,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const res = await api.auth.register(formData);
     tokenStorage.set(res.token);
     setUser(res.user);
-    getSocket();
+    reauthenticateSocket(res.token);
     setAuthModalState({ isOpen: false, mode: 'login' });
   };
 
   const logout = () => {
     tokenStorage.remove();
-    disconnectSocket();
+    reauthenticateSocket();
     setUser(null);
     setActiveTab('feed');
   };
+
 
   const openAuthModal = (mode: 'login' | 'register' = 'login') => {
     setAuthModalState({ isOpen: true, mode });
